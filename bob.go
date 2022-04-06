@@ -12,7 +12,7 @@ import (
 	docker "github.com/docker/docker/client"
 	git "github.com/go-git/go-git/v5"
 	github "github.com/google/go-github/github"
-	archiver "github.com/mholt/archiver"
+	archiver "github.com/mholt/archiver/v4"
 )
 
 type Builder struct {
@@ -70,15 +70,24 @@ func (b *Builder) Clone(ctx context.Context, src, dest string) error {
 }
 
 func (b *Builder) Tar(ctx context.Context, target string) (io.Reader, error) {
+	files, err := archiver.FilesFromDisk(nil, map[string]string{
+		target: target,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var buffer []byte
+	out := bytes.NewBuffer(buffer)
 	format := archiver.CompressedArchive{
 		Compression: archiver.Gz{},
 		Archival:    archiver.Tar{},
 	}
-	var buffer []byte
-	out := bytes.NewBuffer(buffer)
-	if err := format.Archive(context.Background(), out, target); err != nil {
+
+	if err := format.Archive(ctx, out, files); err != nil {
 		return nil, err
 	}
+
 	return out, nil
 }
 
