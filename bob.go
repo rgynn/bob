@@ -1,14 +1,16 @@
 package bob
 
 import (
+	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	git "github.com/go-git/go-git/v5"
 	github "github.com/google/go-github/github"
@@ -92,11 +94,51 @@ func (b *Builder) Tar(ctx context.Context, target string) (io.Reader, error) {
 }
 
 func (b *Builder) BuildImage(ctx context.Context, file io.Reader, image string, tags ...string) error {
-	return errors.New("not implemented yet")
+	resp, err := b.Docker.ImageBuild(
+		ctx,
+		file,
+		types.ImageBuildOptions{
+			Tags:        tags,
+			NoCache:     true,
+			Remove:      true,
+			ForceRemove: true,
+			PullParent:  true,
+			Dockerfile:  "Dockerfile",
+		})
+	if err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			break
+		}
+		log.Println(scanner.Text())
+	}
+
+	return nil
 }
 
-func (b *Builder) Push(ctx context.Context, image string, tags ...string) error {
-	return errors.New("not implemented yet")
+func (b *Builder) Push(ctx context.Context, image string) error {
+	resp, err := b.Docker.ImagePush(
+		ctx,
+		image,
+		types.ImagePushOptions{},
+	)
+	if err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(resp)
+	for scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			break
+		}
+		log.Println(scanner.Text())
+	}
+
+	return nil
 }
 
 func (b *Builder) Run(repo, image string, tags ...string) error {
@@ -118,8 +160,10 @@ func (b *Builder) Run(repo, image string, tags ...string) error {
 		return err
 	}
 
-	if err := b.Push(ctx, image, tags...); err != nil {
-		return err
+	for _, tag := range tags {
+		if err := b.Push(ctx, fmt.Sprintf("%s:%s", image, tag)); err != nil {
+			return err
+		}
 	}
 
 	return nil
