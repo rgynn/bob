@@ -13,13 +13,11 @@ import (
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	git "github.com/go-git/go-git/v5"
-	github "github.com/google/go-github/github"
 	archiver "github.com/mholt/archiver/v4"
 )
 
 type Builder struct {
 	Docker       *docker.Client
-	Github       *github.Client
 	Organisation string
 	Timeout      time.Duration
 }
@@ -45,11 +43,8 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		return nil, err
 	}
 
-	github_client := github.NewClient(http_client)
-
 	return &Builder{
 		Docker:       docker_client,
-		Github:       github_client,
 		Timeout:      opts.Timeout,
 		Organisation: opts.Organisation,
 	}, nil
