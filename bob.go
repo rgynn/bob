@@ -20,15 +20,11 @@ import (
 type Builder struct {
 	Docker       *docker.Client
 	Github       *github.Client
-	Reader       io.Reader
-	Writer       io.Writer
 	Organisation string
 	Timeout      time.Duration
 }
 
 type BuilderOptions struct {
-	Reader        io.Reader
-	Writer        io.Writer
 	DockerHost    string
 	DockerVersion string
 	Organisation  string
@@ -56,18 +52,28 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		Github:       github_client,
 		Timeout:      opts.Timeout,
 		Organisation: opts.Organisation,
-		Writer:       opts.Writer,
-		Reader:       opts.Reader,
 	}, nil
 }
 
 func (b *Builder) Clone(ctx context.Context, src, dest string) error {
+	var buffer []byte
+	out := bytes.NewBuffer(buffer)
+
 	if _, err := git.PlainClone(dest, false, &git.CloneOptions{
 		URL:      fmt.Sprintf("https://github.com/%s/%s", b.Organisation, src),
-		Progress: b.Writer,
+		Progress: out,
 	}); err != nil {
 		return err
 	}
+
+	scanner := bufio.NewScanner(out)
+	for scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			break
+		}
+		log.Println(scanner.Text())
+	}
+
 	return nil
 }
 
