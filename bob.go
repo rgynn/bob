@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/docker/docker/api/types"
+	docker_types "github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	git "github.com/go-git/go-git/v5"
 	archiver "github.com/mholt/archiver/v4"
@@ -98,7 +98,7 @@ func (b *Builder) BuildImage(ctx context.Context, file io.Reader, image string, 
 	resp, err := b.Docker.ImageBuild(
 		ctx,
 		file,
-		types.ImageBuildOptions{
+		docker_types.ImageBuildOptions{
 			Tags:        tags,
 			NoCache:     true,
 			Remove:      true,
@@ -125,7 +125,7 @@ func (b *Builder) Push(ctx context.Context, image string) error {
 	resp, err := b.Docker.ImagePush(
 		ctx,
 		image,
-		types.ImagePushOptions{},
+		docker_types.ImagePushOptions{},
 	)
 	if err != nil {
 		return err
