@@ -1,6 +1,7 @@
 package bob
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	docker "github.com/docker/docker/client"
 	git "github.com/go-git/go-git/v5"
 	github "github.com/google/go-github/github"
+	archiver "github.com/mholt/archiver"
 )
 
 type Builder struct {
@@ -68,7 +70,16 @@ func (b *Builder) Clone(ctx context.Context, src, dest string) error {
 }
 
 func (b *Builder) Tar(ctx context.Context, target string) (io.Reader, error) {
-	return nil, errors.New("not implemented yet")
+	format := archiver.CompressedArchive{
+		Compression: archiver.Gz{},
+		Archival:    archiver.Tar{},
+	}
+	var buffer []byte
+	out := bytes.NewBuffer(buffer)
+	if err := format.Archive(context.Background(), out, target); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (b *Builder) BuildImage(ctx context.Context, file io.Reader, image string, tags ...string) error {
