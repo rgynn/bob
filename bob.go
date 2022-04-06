@@ -9,20 +9,38 @@ import (
 	"time"
 
 	docker "github.com/docker/docker/client"
+	git "github.com/go-git/go-git/v5"
 	github "github.com/google/go-github/github"
 )
 
 type Builder struct {
-	Docker  *docker.Client
-	Github  *github.Client
-	Timeout time.Duration
+	Docker       *docker.Client
+	Github       *github.Client
+	Reader       io.Reader
+	Writer       io.Writer
+	Organisation string
+	Timeout      time.Duration
 }
 
-func NewBuilder(host, version string, timeout time.Duration) (*Builder, error) {
+type BuilderOptions struct {
+	Reader        io.Reader
+	Writer        io.Writer
+	DockerHost    string
+	DockerVersion string
+	Organisation  string
+	Timeout       time.Duration
+}
+
+func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 	http_client := &http.Client{}
 	headers := map[string]string{}
 
-	docker_client, err := docker.NewClient(host, version, http_client, headers)
+	docker_client, err := docker.NewClient(
+		opts.DockerHost,
+		opts.DockerVersion,
+		http_client,
+		headers,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -30,14 +48,23 @@ func NewBuilder(host, version string, timeout time.Duration) (*Builder, error) {
 	github_client := github.NewClient(http_client)
 
 	return &Builder{
-		Docker:  docker_client,
-		Github:  github_client,
-		Timeout: timeout,
+		Docker:       docker_client,
+		Github:       github_client,
+		Timeout:      opts.Timeout,
+		Organisation: opts.Organisation,
+		Writer:       opts.Writer,
+		Reader:       opts.Reader,
 	}, nil
 }
 
 func (b *Builder) Clone(ctx context.Context, src, dest string) error {
-	return errors.New("not implemented yet")
+	if _, err := git.PlainClone(dest, false, &git.CloneOptions{
+		URL:      fmt.Sprintf("https://github.com/%s/%s", b.Organisation, src),
+		Progress: b.Writer,
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (b *Builder) Tar(ctx context.Context, target string) (io.Reader, error) {
