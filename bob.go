@@ -1,23 +1,27 @@
 package bob
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"time"
 
 	docker_types "github.com/docker/docker/api/types"
-	docker "github.com/docker/docker/client"
+	billy "github.com/go-git/go-billy/v5"
+	memfs "github.com/go-git/go-billy/v5/memfs"
 	git "github.com/go-git/go-git/v5"
-	archiver "github.com/mholt/archiver/v4"
+	plumbing "github.com/go-git/go-git/v5/plumbing"
+	memory "github.com/go-git/go-git/v5/storage/memory"
+	moby "github.com/moby/moby/client"
 )
 
 type Builder struct {
-	Docker       *docker.Client
+	Docker       *moby.Client
 	Organisation string
 	Timeout      time.Duration
 }
@@ -30,15 +34,7 @@ type BuilderOptions struct {
 }
 
 func NewBuilder(opts *BuilderOptions) (*Builder, error) {
-	http_client := &http.Client{}
-	headers := map[string]string{}
-
-	docker_client, err := docker.NewClient(
-		opts.DockerHost,
-		opts.DockerVersion,
-		http_client,
-		headers,
-	)
+	docker_client, err := moby.NewClientWithOpts(moby.FromEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -50,51 +46,114 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 	}, nil
 }
 
-func (b *Builder) Clone(ctx context.Context, src, dest string) error {
+func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesystem, error) {
 	var buffer []byte
-	out := bytes.NewBuffer(buffer)
+	progress := bytes.NewBuffer(buffer)
 
-	if _, err := git.PlainClone(dest, false, &git.CloneOptions{
-		URL:      fmt.Sprintf("https://github.com/%s/%s", b.Organisation, src),
-		Progress: out,
-	}); err != nil {
-		return err
+	storer := memory.NewStorage()
+	fs := memfs.New()
+	url := fmt.Sprintf("https://github.com/%s/%s", b.Organisation, repo)
+
+	repository, err := git.Clone(storer, fs, &git.CloneOptions{
+		URL:      url,
+		Progress: progress,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to clone repository: %w", err)
 	}
 
-	scanner := bufio.NewScanner(out)
+	tree, err := repository.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	if err := tree.Checkout(&git.CheckoutOptions{
+		Hash: plumbing.NewHash(commit),
+	}); err != nil {
+		return nil, fmt.Errorf(
+			"failed to checkout repo: %s, commit: %s, error: %w",
+			repo,
+			commit,
+			err,
+		)
+	}
+
+	scanner := bufio.NewScanner(progress)
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			break
 		}
-		log.Println(scanner.Text())
+		log.Printf("GIT\t%s\n", scanner.Text())
+	}
+
+	return fs, nil
+}
+
+func (b *Builder) Tar(ctx context.Context, repo string, fs billy.Filesystem) (billy.File, error) {
+
+	filename := fmt.Sprintf("%s.tar.gz", repo)
+
+	file, err := fs.Create(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	buffer := bufio.NewWriter(file)
+
+	gw := gzip.NewWriter(buffer)
+	defer gw.Close()
+
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
+
+	files, err := fs.ReadDir(".")
+	if err != nil {
+		return nil, err
+	}
+
+	for _, f := range files {
+		fmt.Printf("adding to archive: %s\n", f.Name())
+		if err := b.addFileToArchive(f.Name(), fs, tw); err != nil {
+			return nil, err
+		}
+	}
+
+	return file, nil
+}
+
+func (b *Builder) addFileToArchive(filename string, fs billy.Filesystem, tw *tar.Writer) error {
+
+	file, err := fs.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := fs.Stat(filename)
+	if err != nil {
+		return err
+	}
+
+	header, err := tar.FileInfoHeader(info, info.Name())
+	if err != nil {
+		return err
+	}
+
+	header.Name = filename
+
+	if err := tw.WriteHeader(header); err != nil {
+		return err
+	}
+
+	_, err = io.Copy(tw, file)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func (b *Builder) Tar(ctx context.Context, target string) (io.Reader, error) {
-	files, err := archiver.FilesFromDisk(nil, map[string]string{
-		target: target,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var buffer []byte
-	out := bytes.NewBuffer(buffer)
-	format := archiver.CompressedArchive{
-		Compression: archiver.Gz{},
-		Archival:    archiver.Tar{},
-	}
-
-	if err := format.Archive(ctx, out, files); err != nil {
-		return nil, err
-	}
-
-	return out, nil
-}
-
-func (b *Builder) BuildImage(ctx context.Context, file io.Reader, image string, tags ...string) error {
+func (b *Builder) BuildImage(ctx context.Context, file billy.File, image string, tags ...string) error {
 	resp, err := b.Docker.ImageBuild(
 		ctx,
 		file,
@@ -115,7 +174,7 @@ func (b *Builder) BuildImage(ctx context.Context, file io.Reader, image string, 
 		if err := scanner.Err(); err != nil {
 			break
 		}
-		log.Println(scanner.Text())
+		log.Printf("BUILD\t%s\n", scanner.Text())
 	}
 
 	return nil
@@ -136,28 +195,27 @@ func (b *Builder) Push(ctx context.Context, image string) error {
 		if err := scanner.Err(); err != nil {
 			break
 		}
-		log.Println(scanner.Text())
+		log.Printf("PUSH\t%s\n", scanner.Text())
 	}
 
 	return nil
 }
 
-func (b *Builder) Run(repo, image string, tags ...string) error {
+func (b *Builder) Run(repo, commit, image string, tags ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), b.Timeout)
 	defer cancel()
 
-	tmpdir := fmt.Sprintf("./tmp/%s", repo)
-
-	if err := b.Clone(ctx, repo, tmpdir); err != nil {
-		return err
-	}
-
-	tar, err := b.Tar(ctx, tmpdir)
+	fs, err := b.Clone(ctx, repo, commit)
 	if err != nil {
 		return err
 	}
 
-	if err := b.BuildImage(ctx, tar, image, tags...); err != nil {
+	file, err := b.Tar(ctx, repo, fs)
+	if err != nil {
+		return err
+	}
+
+	if err := b.BuildImage(ctx, file, image, tags...); err != nil {
 		return err
 	}
 
