@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	git_ssh_key     string
 	git_repo        string
 	git_commit      string
 	docker_image    string
@@ -22,8 +23,9 @@ var (
 )
 
 func init() {
+	flag.StringVar(&git_ssh_key, "git-ssh-key", "", "base64 encoded string of key to checkout repository with")
 	flag.StringVar(&git_repo, "git-repo", "", "git repository to checkout")
-	flag.StringVar(&git_commit, "commit", "", "git commit to checkout from repository and tag docker image with")
+	flag.StringVar(&git_commit, "git-commit", "", "git commit to checkout from repository and tag docker image with")
 	flag.StringVar(&docker_image, "docker-image", "", "docker image to push")
 	flag.StringVar(&docker_username, "u", "00000000-0000-0000-0000-000000000000", "docker repository user to push with")
 	flag.StringVar(&docker_password, "p", "", "docker repository password to push with")
@@ -34,6 +36,7 @@ func init() {
 
 func main() {
 	builder, err := bob.NewBuilder(&bob.BuilderOptions{
+		GitSSHKey:      git_ssh_key,
 		Output:         os.Stdout,
 		DockerUsername: docker_username,
 		DockerPassword: docker_password,

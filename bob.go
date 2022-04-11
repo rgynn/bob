@@ -20,21 +20,24 @@ import (
 	memfs "github.com/go-git/go-billy/v5/memfs"
 	git "github.com/go-git/go-git/v5"
 	plumbing "github.com/go-git/go-git/v5/plumbing"
+	ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	memory "github.com/go-git/go-git/v5/storage/memory"
 	moby "github.com/moby/moby/client"
 )
 
 type Builder struct {
-	Docker         *moby.Client
-	Output         io.Writer
-	DockerUsername string
-	DockerPassword string
-	DockerRepo     string
-	Timeout        time.Duration
+	Docker          *moby.Client
+	Output          io.Writer
+	GitSSHPublicKey *ssh.PublicKeys
+	DockerUsername  string
+	DockerPassword  string
+	DockerRepo      string
+	Timeout         time.Duration
 }
 
 type BuilderOptions struct {
 	Output         io.Writer
+	GitSSHKey      string
 	DockerUsername string
 	DockerPassword string
 	DockerRepo     string
@@ -47,12 +50,23 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		return nil, err
 	}
 
+	sshkey, err := base64.StdEncoding.DecodeString(opts.GitSSHKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to base64 decode git ssh key: %w", err)
+	}
+
+	publicKey, err := ssh.NewPublicKeys("git", sshkey, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate new public key from provided ssh key: %w", err)
+	}
+
 	return &Builder{
-		Docker:         docker_client,
-		DockerUsername: opts.DockerUsername,
-		DockerPassword: opts.DockerPassword,
-		Output:         opts.Output,
-		DockerRepo:     opts.DockerRepo,
+		Docker:          docker_client,
+		GitSSHPublicKey: publicKey,
+		DockerUsername:  opts.DockerUsername,
+		DockerPassword:  opts.DockerPassword,
+		Output:          opts.Output,
+		DockerRepo:      opts.DockerRepo,
 	}, nil
 }
 
@@ -97,6 +111,7 @@ func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesys
 	repository, err := git.Clone(storer, fs, &git.CloneOptions{
 		URL:      repo,
 		Progress: b.Output,
+		Auth:     b.GitSSHPublicKey,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to clone repository: %w", err)
@@ -321,9 +336,8 @@ func (b *Builder) Push(ctx context.Context, tag string) error {
 
 func (b *Builder) getAuthConfig() (string, error) {
 	cfg := docker_types.AuthConfig{
-		Username:      b.DockerUsername,
-		Password:      b.DockerPassword,
-		ServerAddress: fmt.Sprintf("%s/v1/", b.DockerRepo),
+		Username: b.DockerUsername,
+		Password: b.DockerPassword,
 	}
 	authConfigBytes, err := json.Marshal(cfg)
 	if err != nil {

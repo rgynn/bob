@@ -18,12 +18,14 @@ go install github.com/rgynn/bob/cmd/bob@v0.0.2
 
 ```sh
 Usage of bob:
-  -commit string
-        git commit to checkout from repository and tag docker image with
   -docker-image string
         docker image to push
+  -git-commit string
+        git commit to checkout from repository and tag docker image with
   -git-repo string
         git repository to checkout
+  -git-ssh-key string
+        base64 encoded string of key to checkout repository with
   -p string
         docker repository password to push with
   -tags string
@@ -37,5 +39,5 @@ Usage of bob:
 ## Using said cli:
 
 ```sh
-bob -git-repo $GIT_REPOSITORY -commit $GIT_COMMIT_HASH -docker-image $DOCKER_REGISTRY/$DOCKER_IMAGE -p $DOCKER_REGISTRY_AUTH_TOKEN
+bob -git-ssh-key $GIT_SSH_KEY -git-repo $GIT_REPOSITORY -git-commit $GIT_COMMIT_HASH -docker-image $DOCKER_REGISTRY/$DOCKER_IMAGE -p $DOCKER_REGISTRY_AUTH_TOKEN
 ```
