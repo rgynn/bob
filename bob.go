@@ -60,16 +60,13 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 }
 
 func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesystem, error) {
-	var buffer []byte
-	progress := bytes.NewBuffer(buffer)
-
 	storer := memory.NewStorage()
 	fs := memfs.New()
 	url := fmt.Sprintf("https://github.com/%s/%s", b.Organisation, repo)
 
 	repository, err := git.Clone(storer, fs, &git.CloneOptions{
 		URL:      url,
-		Progress: progress,
+		Progress: b.Logger.Writer(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to clone repository: %w", err)
@@ -89,14 +86,6 @@ func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesys
 			commit,
 			err,
 		)
-	}
-
-	scanner := bufio.NewScanner(progress)
-	for scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			break
-		}
-		b.Logger.Printf("GIT\t%s\n", scanner.Text())
 	}
 
 	return fs, nil
@@ -159,8 +148,6 @@ func (b *Builder) addDirectoryToArchive(path, tarfilename string, fs billy.Files
 }
 
 func (b *Builder) addFileToArchive(path string, fs billy.Filesystem, tw *tar.Writer) error {
-	b.Logger.Printf("Adding to archive: %s\n", path)
-
 	file, err := fs.Open(path)
 	if err != nil {
 		return err
