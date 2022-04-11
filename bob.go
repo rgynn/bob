@@ -223,7 +223,7 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo stri
 		file,
 		docker_types.ImageBuildOptions{
 			Tags:        tags,
-			NoCache:     true,
+			NoCache:     false,
 			Remove:      true,
 			ForceRemove: true,
 			PullParent:  true,
@@ -259,7 +259,10 @@ func (b *Builder) Push(ctx context.Context, tag string) error {
 		Password:      b.DockerPassword,
 		ServerAddress: fmt.Sprintf("%s/v1/", b.DockerRepo),
 	}
-	authConfigBytes, _ := json.Marshal(authConfig)
+	authConfigBytes, err := json.Marshal(authConfig)
+	if err != nil {
+		return err
+	}
 	authConfigEncoded := base64.URLEncoding.EncodeToString(authConfigBytes)
 
 	resp, err := b.Docker.ImagePush(
@@ -307,7 +310,11 @@ func (b *Builder) Run(repo, commit, image string, tags ...string) error {
 	}
 
 	for i, tag := range tags {
-		tags[i] = fmt.Sprintf("%s/%s/%s:%s", b.DockerRepo, b.Organisation, image, tag)
+		if b.DockerRepo == "" {
+			tags[i] = fmt.Sprintf("%s/%s:%s", b.Organisation, image, tag)
+		} else {
+			tags[i] = fmt.Sprintf("%s/%s/%s:%s", b.DockerRepo, b.Organisation, image, tag)
+		}
 	}
 
 	if err := b.BuildImage(ctx, fs, repo, tags...); err != nil {
