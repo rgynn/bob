@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -232,12 +233,20 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo, ima
 	}
 	defer resp.Body.Close()
 
+	type msg struct {
+		Text string `json:"stream"`
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			break
 		}
-		b.Logger.Printf("BUILD\t%s\n", scanner.Text())
+		var msg msg
+		if err := json.NewDecoder(bytes.NewReader(scanner.Bytes())).Decode(&msg); err != nil {
+			return err
+		}
+		b.Logger.Printf("BUILD\t%s", strings.TrimSpace(msg.Text))
 	}
 
 	return nil
