@@ -278,10 +278,6 @@ func (b *Builder) Run(repo, commit, image string, tags ...string) error {
 		return err
 	}
 
-	if err := b.DumpArchive(repo, fs); err != nil {
-		return err
-	}
-
 	if err := b.BuildImage(ctx, fs, repo, image, tags...); err != nil {
 		return err
 	}
