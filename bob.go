@@ -237,6 +237,7 @@ func (b *Builder) Run(repo, commit, image string, tags ...string) error {
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
 	if err := b.BuildImage(ctx, file, image, tags...); err != nil {
 		return err

@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bob"
 	"log"
 	"time"
-	bob "tooling-bob"
 )
 
 func main() {
