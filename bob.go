@@ -64,6 +64,38 @@ func (b *Builder) getTarFilename(git_repo string) string {
 	return fmt.Sprintf("%s.tar.gz", repos[len(repos)-1])
 }
 
+func (b *Builder) Run(git_repo, git_commit, docker_image string, tags ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), b.Timeout)
+	defer cancel()
+
+	fs, err := b.Clone(ctx, git_repo, git_commit)
+	if err != nil {
+		return err
+	}
+
+	tarfilename := b.getTarFilename(git_repo)
+
+	if err := b.Tar(ctx, tarfilename, fs); err != nil {
+		return err
+	}
+
+	for i, tag := range tags {
+		tags[i] = fmt.Sprintf("%s:%s", docker_image, tag)
+	}
+
+	if err := b.BuildImage(ctx, fs, tarfilename, docker_image, tags...); err != nil {
+		return err
+	}
+
+	for _, tag := range tags {
+		if err := b.Push(ctx, tag); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesystem, error) {
 	storer := memory.NewStorage()
 	fs := memfs.New()
@@ -250,22 +282,16 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, tarfilena
 }
 
 func (b *Builder) Push(ctx context.Context, tag string) error {
-	authConfig := docker_types.AuthConfig{
-		Username:      b.DockerUsername,
-		Password:      b.DockerPassword,
-		ServerAddress: fmt.Sprintf("%s/v1/", b.DockerRepo),
-	}
-	authConfigBytes, err := json.Marshal(authConfig)
+	authConfig, err := b.getAuthConfig()
 	if err != nil {
 		return err
 	}
-	authConfigEncoded := base64.URLEncoding.EncodeToString(authConfigBytes)
 
 	resp, err := b.Docker.ImagePush(
 		ctx,
 		tag,
 		docker_types.ImagePushOptions{
-			RegistryAuth: authConfigEncoded,
+			RegistryAuth: authConfig,
 		},
 	)
 	if err != nil {
@@ -300,34 +326,15 @@ func (b *Builder) Push(ctx context.Context, tag string) error {
 	return nil
 }
 
-func (b *Builder) Run(git_repo, git_commit, docker_image string, tags ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), b.Timeout)
-	defer cancel()
-
-	fs, err := b.Clone(ctx, git_repo, git_commit)
+func (b *Builder) getAuthConfig() (string, error) {
+	cfg := docker_types.AuthConfig{
+		Username:      b.DockerUsername,
+		Password:      b.DockerPassword,
+		ServerAddress: fmt.Sprintf("%s/v1/", b.DockerRepo),
+	}
+	authConfigBytes, err := json.Marshal(cfg)
 	if err != nil {
-		return err
+		return "", err
 	}
-
-	tarfilename := b.getTarFilename(git_repo)
-
-	if err := b.Tar(ctx, tarfilename, fs); err != nil {
-		return err
-	}
-
-	for i, tag := range tags {
-		tags[i] = fmt.Sprintf("%s:%s", docker_image, tag)
-	}
-
-	if err := b.BuildImage(ctx, fs, tarfilename, docker_image, tags...); err != nil {
-		return err
-	}
-
-	for _, tag := range tags {
-		if err := b.Push(ctx, tag); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return base64.URLEncoding.EncodeToString(authConfigBytes), nil
 }
