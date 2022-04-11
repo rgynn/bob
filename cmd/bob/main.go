@@ -3,6 +3,7 @@ package main
 import (
 	"bob"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -10,17 +11,21 @@ import (
 )
 
 var (
-	git_repo    string
-	docker_repo string
-	org         string
-	commit      string
-	tags_flag   string
-	timeout     time.Duration
+	git_repo        string
+	docker_repo     string
+	docker_username string
+	docker_password string
+	org             string
+	commit          string
+	tags_flag       string
+	timeout         time.Duration
 )
 
 func init() {
 	flag.StringVar(&git_repo, "git-repo", "", "git repository to checkout")
 	flag.StringVar(&docker_repo, "docker-repo", "", "docker repository to push to")
+	flag.StringVar(&docker_username, "u", "00000000-0000-0000-0000-000000000000", "docker repository user to push with")
+	flag.StringVar(&docker_password, "p", "", "docker repository password to push with")
 	flag.StringVar(&org, "org", "", "git and docker organisation to checkout")
 	flag.StringVar(&commit, "commit", "", "git commit to checkout from repository and tag docker image with")
 	flag.StringVar(&tags_flag, "tags", "", "additional tags to push docker image with")
@@ -31,12 +36,14 @@ func init() {
 func main() {
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	builder, err := bob.NewBuilder(&bob.BuilderOptions{
-		Logger:        logger,
-		DockerHost:    "unix:///var/run/docker.sock",
-		DockerVersion: "1.41",
-		Organisation:  org,
-		DockerRepo:    docker_repo,
-		Timeout:       timeout,
+		Writer:         os.Stdout,
+		DockerHost:     "unix:///var/run/docker.sock",
+		DockerUsername: docker_username,
+		DockerPassword: docker_password,
+		DockerVersion:  "1.41",
+		Organisation:   org,
+		DockerRepo:     docker_repo,
+		Timeout:        timeout,
 	})
 	if err != nil {
 		logger.Fatal(err)
@@ -51,6 +58,7 @@ func main() {
 	tags = append(tags, default_tags...)
 
 	if err := builder.Run(git_repo, commit, git_repo, tags...); err != nil {
-		logger.Fatal(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 }

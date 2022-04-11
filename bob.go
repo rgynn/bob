@@ -8,9 +8,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -24,13 +24,9 @@ import (
 	moby "github.com/moby/moby/client"
 )
 
-type msg struct {
-	Text string `json:"stream"`
-}
-
 type Builder struct {
 	Docker         *moby.Client
-	Logger         *log.Logger
+	Writer         io.Writer
 	DockerUsername string
 	DockerPassword string
 	Organisation   string
@@ -39,7 +35,7 @@ type Builder struct {
 }
 
 type BuilderOptions struct {
-	Logger         *log.Logger
+	Writer         io.Writer
 	DockerUsername string
 	DockerPassword string
 	DockerHost     string
@@ -59,7 +55,7 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		Docker:         docker_client,
 		DockerUsername: opts.DockerUsername,
 		DockerPassword: opts.DockerPassword,
-		Logger:         opts.Logger,
+		Writer:         opts.Writer,
 		Timeout:        opts.Timeout,
 		Organisation:   opts.Organisation,
 		DockerRepo:     opts.DockerRepo,
@@ -73,7 +69,7 @@ func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesys
 
 	repository, err := git.Clone(storer, fs, &git.CloneOptions{
 		URL:      url,
-		Progress: b.Logger.Writer(),
+		Progress: b.Writer,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to clone repository: %w", err)
@@ -234,17 +230,21 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo stri
 	}
 	defer resp.Body.Close()
 
+	type msg struct {
+		Text string `json:"stream"`
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
-			break
+			return err
 		}
 		var msg msg
 		if err := json.NewDecoder(bytes.NewReader(scanner.Bytes())).Decode(&msg); err != nil {
 			return err
 		}
-		if b.Logger != nil {
-			if _, err := b.Logger.Writer().Write([]byte(msg.Text)); err != nil {
+		if b.Writer != nil {
+			if _, err := b.Writer.Write([]byte(msg.Text)); err != nil {
 				return err
 			}
 		}
@@ -277,17 +277,25 @@ func (b *Builder) Push(ctx context.Context, tag string) error {
 	}
 	defer resp.Close()
 
+	type msg struct {
+		Text  string  `json:"status"`
+		Error *string `json:"error"`
+	}
+
 	scanner := bufio.NewScanner(resp)
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
-			break
+			return err
 		}
 		var msg msg
 		if err := json.NewDecoder(bytes.NewReader(scanner.Bytes())).Decode(&msg); err != nil {
 			return err
 		}
-		if b.Logger != nil {
-			if _, err := b.Logger.Writer().Write([]byte(msg.Text)); err != nil {
+		if msg.Error != nil {
+			return errors.New(*msg.Error)
+		}
+		if b.Writer != nil {
+			if _, err := b.Writer.Write([]byte(msg.Text + "\n")); err != nil {
 				return err
 			}
 		}
