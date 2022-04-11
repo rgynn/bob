@@ -1,12 +1,13 @@
 package main
 
 import (
-	"bob"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/rgynn/bob"
 )
 
 var (

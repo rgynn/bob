@@ -1,4 +1,4 @@
-module bob
+module github.com/rgynn/bob
 
 go 1.18
 
