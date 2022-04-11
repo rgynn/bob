@@ -59,7 +59,7 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 	}, nil
 }
 
-func (b *Builder) GetTarFilename(git_repo string) string {
+func (b *Builder) getTarFilename(git_repo string) string {
 	repos := strings.Split(git_repo, "/")
 	return fmt.Sprintf("%s.tar.gz", repos[len(repos)-1])
 }
@@ -96,8 +96,7 @@ func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesys
 	return fs, nil
 }
 
-func (b *Builder) Tar(ctx context.Context, git_repo string, fs billy.Filesystem) error {
-	tarfilename := b.GetTarFilename(git_repo)
+func (b *Builder) Tar(ctx context.Context, tarfilename string, fs billy.Filesystem) error {
 	file, err := fs.Create(tarfilename)
 	if err != nil {
 		return err
@@ -181,9 +180,7 @@ func (b *Builder) addFileToArchive(path string, fs billy.Filesystem, tw *tar.Wri
 	return nil
 }
 
-func (b *Builder) DumpArchive(git_repo string, fs billy.Filesystem) error {
-	tarfilename := b.GetTarFilename(git_repo)
-
+func (b *Builder) DumpArchive(tarfilename string, fs billy.Filesystem) error {
 	src, err := fs.Open(tarfilename)
 	if err != nil {
 		return err
@@ -206,9 +203,7 @@ func (b *Builder) DumpArchive(git_repo string, fs billy.Filesystem) error {
 	return nil
 }
 
-func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, git_repo, docker_image string, tags ...string) error {
-	tarfilename := b.GetTarFilename(git_repo)
-
+func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, tarfilename, docker_image string, tags ...string) error {
 	file, err := fs.Open(tarfilename)
 	if err != nil {
 		return fmt.Errorf("failed to open tar file in mem fs: %w", err)
@@ -314,7 +309,9 @@ func (b *Builder) Run(git_repo, git_commit, docker_image string, tags ...string)
 		return err
 	}
 
-	if err := b.Tar(ctx, git_repo, fs); err != nil {
+	tarfilename := b.getTarFilename(git_repo)
+
+	if err := b.Tar(ctx, tarfilename, fs); err != nil {
 		return err
 	}
 
@@ -322,7 +319,7 @@ func (b *Builder) Run(git_repo, git_commit, docker_image string, tags ...string)
 		tags[i] = fmt.Sprintf("%s:%s", docker_image, tag)
 	}
 
-	if err := b.BuildImage(ctx, fs, git_repo, docker_image, tags...); err != nil {
+	if err := b.BuildImage(ctx, fs, tarfilename, docker_image, tags...); err != nil {
 		return err
 	}
 
