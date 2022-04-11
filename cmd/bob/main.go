@@ -33,10 +33,8 @@ func init() {
 func main() {
 	builder, err := bob.NewBuilder(&bob.BuilderOptions{
 		Writer:         os.Stdout,
-		DockerHost:     "unix:///var/run/docker.sock",
 		DockerUsername: docker_username,
 		DockerPassword: docker_password,
-		DockerVersion:  "1.41",
 		Timeout:        timeout,
 	})
 	if err != nil {

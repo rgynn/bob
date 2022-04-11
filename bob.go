@@ -37,8 +37,6 @@ type BuilderOptions struct {
 	Writer         io.Writer
 	DockerUsername string
 	DockerPassword string
-	DockerHost     string
-	DockerVersion  string
 	DockerRepo     string
 	Timeout        time.Duration
 }
