@@ -11,7 +11,7 @@
 ## Install as cli:
 
 ```sh
-go install github.com/rgynn/bob/cmd/bob@v0.0.2
+go install github.com/rgynn/bob/cmd/bob@v0.0.3
 ```
 
 ## Usage:
