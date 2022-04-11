@@ -15,12 +15,15 @@ func main() {
 		DockerHost:    "unix:///var/run/docker.sock",
 		DockerVersion: "1.41",
 		Organisation:  "rgynn",
+		DockerRepo:    "hub.docker.com",
 		Timeout:       time.Minute * 5,
 	})
 	if err != nil {
 		logger.Fatal(err)
 	}
-	if err := builder.Run("klottr", "626689284788951e300dd5847cef859d711d2266", "latest"); err != nil {
+	commit := "626689284788951e300dd5847cef859d711d2266"
+	tags := []string{"latest", commit}
+	if err := builder.Run("klottr", commit, "klottr", tags...); err != nil {
 		logger.Fatal(err)
 	}
 }

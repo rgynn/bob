@@ -23,10 +23,15 @@ import (
 	moby "github.com/moby/moby/client"
 )
 
+type msg struct {
+	Text string `json:"stream"`
+}
+
 type Builder struct {
 	Docker       *moby.Client
 	Logger       *log.Logger
 	Organisation string
+	DockerRepo   string
 	Timeout      time.Duration
 }
 
@@ -35,6 +40,7 @@ type BuilderOptions struct {
 	DockerHost    string
 	DockerVersion string
 	Organisation  string
+	DockerRepo    string
 	Timeout       time.Duration
 }
 
@@ -49,6 +55,7 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		Logger:       opts.Logger,
 		Timeout:      opts.Timeout,
 		Organisation: opts.Organisation,
+		DockerRepo:   opts.DockerRepo,
 	}, nil
 }
 
@@ -208,7 +215,7 @@ func (b *Builder) DumpArchive(repo string, fs billy.Filesystem) error {
 	return nil
 }
 
-func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo, image string, tags ...string) error {
+func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo string, tags ...string) error {
 	filename := fmt.Sprintf("%s.tar.gz", repo)
 
 	file, err := fs.Open(filename)
@@ -233,10 +240,6 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo, ima
 	}
 	defer resp.Body.Close()
 
-	type msg struct {
-		Text string `json:"stream"`
-	}
-
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
@@ -246,16 +249,18 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo, ima
 		if err := json.NewDecoder(bytes.NewReader(scanner.Bytes())).Decode(&msg); err != nil {
 			return err
 		}
-		b.Logger.Printf("BUILD\t%s", strings.TrimSpace(msg.Text))
+		if b.Logger != nil {
+			b.Logger.Printf("BUILD\t%s", strings.TrimSpace(msg.Text))
+		}
 	}
 
 	return nil
 }
 
-func (b *Builder) Push(ctx context.Context, image string) error {
+func (b *Builder) Push(ctx context.Context, tag string) error {
 	resp, err := b.Docker.ImagePush(
 		ctx,
-		image,
+		tag,
 		docker_types.ImagePushOptions{},
 	)
 	if err != nil {
@@ -268,7 +273,13 @@ func (b *Builder) Push(ctx context.Context, image string) error {
 		if err := scanner.Err(); err != nil {
 			break
 		}
-		b.Logger.Printf("PUSH\t%s\n", scanner.Text())
+		var msg msg
+		if err := json.NewDecoder(bytes.NewReader(scanner.Bytes())).Decode(&msg); err != nil {
+			return err
+		}
+		if b.Logger != nil {
+			b.Logger.Printf("PUSH\t%s", strings.TrimSpace(msg.Text))
+		}
 	}
 
 	return nil
@@ -287,12 +298,16 @@ func (b *Builder) Run(repo, commit, image string, tags ...string) error {
 		return err
 	}
 
-	if err := b.BuildImage(ctx, fs, repo, image, tags...); err != nil {
+	for i, tag := range tags {
+		tags[i] = fmt.Sprintf("%s/%s/%s:%s", b.DockerRepo, b.Organisation, image, tag)
+	}
+
+	if err := b.BuildImage(ctx, fs, repo, tags...); err != nil {
 		return err
 	}
 
 	for _, tag := range tags {
-		if err := b.Push(ctx, fmt.Sprintf("%s:%s", image, tag)); err != nil {
+		if err := b.Push(ctx, tag); err != nil {
 			return err
 		}
 	}
