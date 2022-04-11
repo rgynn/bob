@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"time"
 
 	docker_types "github.com/docker/docker/api/types"
@@ -91,9 +92,9 @@ func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesys
 
 func (b *Builder) Tar(ctx context.Context, repo string, fs billy.Filesystem) (billy.File, error) {
 
-	filename := fmt.Sprintf("%s.tar.gz", repo)
+	tarfilename := fmt.Sprintf("%s.tar.gz", repo)
 
-	file, err := fs.Create(filename)
+	file, err := fs.Create(tarfilename)
 	if err != nil {
 		return nil, err
 	}
@@ -106,30 +107,52 @@ func (b *Builder) Tar(ctx context.Context, repo string, fs billy.Filesystem) (bi
 	tw := tar.NewWriter(gw)
 	defer tw.Close()
 
-	files, err := fs.ReadDir(".")
-	if err != nil {
+	if err := b.addDirectoryToArchive(".", tarfilename, fs, tw); err != nil {
 		return nil, err
-	}
-
-	for _, f := range files {
-		fmt.Printf("adding to archive: %s\n", f.Name())
-		if err := b.addFileToArchive(f.Name(), fs, tw); err != nil {
-			return nil, err
-		}
 	}
 
 	return file, nil
 }
 
-func (b *Builder) addFileToArchive(filename string, fs billy.Filesystem, tw *tar.Writer) error {
+func (b *Builder) addDirectoryToArchive(path, tarfilename string, fs billy.Filesystem, tw *tar.Writer) error {
+	files, err := fs.ReadDir(path)
+	if err != nil {
+		return err
+	}
 
-	file, err := fs.Open(filename)
+	for _, fd := range files {
+		path := fmt.Sprintf("%s/%s", path, fd.Name())
+
+		if strings.Contains(path, tarfilename) ||
+			strings.Contains(path, ".git") ||
+			strings.Contains(path, ".github") {
+			continue
+		}
+
+		if fd.IsDir() {
+			if err := b.addDirectoryToArchive(path, tarfilename, fs, tw); err != nil {
+				return err
+			}
+			continue
+		}
+
+		fmt.Printf("Adding to archive: %s\n", path)
+		if err := b.addFileToArchive(path, fs, tw); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *Builder) addFileToArchive(path string, fs billy.Filesystem, tw *tar.Writer) error {
+	file, err := fs.Open(path)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	info, err := fs.Stat(filename)
+	info, err := fs.Stat(path)
 	if err != nil {
 		return err
 	}
@@ -139,7 +162,7 @@ func (b *Builder) addFileToArchive(filename string, fs billy.Filesystem, tw *tar
 		return err
 	}
 
-	header.Name = filename
+	header.Name = path
 
 	if err := tw.WriteHeader(header); err != nil {
 		return err
