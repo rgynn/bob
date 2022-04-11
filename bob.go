@@ -26,7 +26,7 @@ import (
 
 type Builder struct {
 	Docker         *moby.Client
-	Writer         io.Writer
+	Output         io.Writer
 	DockerUsername string
 	DockerPassword string
 	DockerRepo     string
@@ -34,7 +34,7 @@ type Builder struct {
 }
 
 type BuilderOptions struct {
-	Writer         io.Writer
+	Output         io.Writer
 	DockerUsername string
 	DockerPassword string
 	DockerRepo     string
@@ -51,8 +51,7 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		Docker:         docker_client,
 		DockerUsername: opts.DockerUsername,
 		DockerPassword: opts.DockerPassword,
-		Writer:         opts.Writer,
-		Timeout:        opts.Timeout,
+		Output:         opts.Output,
 		DockerRepo:     opts.DockerRepo,
 	}, nil
 }
@@ -62,10 +61,7 @@ func (b *Builder) getTarFilename(git_repo string) string {
 	return fmt.Sprintf("%s.tar.gz", repos[len(repos)-1])
 }
 
-func (b *Builder) Run(git_repo, git_commit, docker_image string, tags ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), b.Timeout)
-	defer cancel()
-
+func (b *Builder) Run(ctx context.Context, git_repo, git_commit, docker_image string, tags ...string) error {
 	fs, err := b.Clone(ctx, git_repo, git_commit)
 	if err != nil {
 		return err
@@ -97,11 +93,10 @@ func (b *Builder) Run(git_repo, git_commit, docker_image string, tags ...string)
 func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesystem, error) {
 	storer := memory.NewStorage()
 	fs := memfs.New()
-	url := fmt.Sprintf("https://%s", repo)
 
 	repository, err := git.Clone(storer, fs, &git.CloneOptions{
-		URL:      url,
-		Progress: b.Writer,
+		URL:      repo,
+		Progress: b.Output,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to clone repository: %w", err)
@@ -269,8 +264,8 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, tarfilena
 		if err := json.NewDecoder(bytes.NewReader(scanner.Bytes())).Decode(&msg); err != nil {
 			return err
 		}
-		if b.Writer != nil {
-			if _, err := b.Writer.Write([]byte(msg.Text)); err != nil {
+		if b.Output != nil {
+			if _, err := b.Output.Write([]byte(msg.Text)); err != nil {
 				return err
 			}
 		}
@@ -314,8 +309,8 @@ func (b *Builder) Push(ctx context.Context, tag string) error {
 		if msg.Error != nil {
 			return errors.New(*msg.Error)
 		}
-		if b.Writer != nil {
-			if _, err := b.Writer.Write([]byte(msg.Text + "\n")); err != nil {
+		if b.Output != nil {
+			if _, err := b.Output.Write([]byte(msg.Text + "\n")); err != nil {
 				return err
 			}
 		}

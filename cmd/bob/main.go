@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -33,17 +34,19 @@ func init() {
 
 func main() {
 	builder, err := bob.NewBuilder(&bob.BuilderOptions{
-		Writer:         os.Stdout,
+		Output:         os.Stdout,
 		DockerUsername: docker_username,
 		DockerPassword: docker_password,
-		Timeout:        timeout,
 	})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	if err := builder.Run(git_repo, git_commit, docker_image, getTags()...); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := builder.Run(ctx, git_repo, git_commit, docker_image, getTags()...); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
