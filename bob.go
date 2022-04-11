@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,20 +29,24 @@ type msg struct {
 }
 
 type Builder struct {
-	Docker       *moby.Client
-	Logger       *log.Logger
-	Organisation string
-	DockerRepo   string
-	Timeout      time.Duration
+	Docker         *moby.Client
+	Logger         *log.Logger
+	DockerUsername string
+	DockerPassword string
+	Organisation   string
+	DockerRepo     string
+	Timeout        time.Duration
 }
 
 type BuilderOptions struct {
-	Logger        *log.Logger
-	DockerHost    string
-	DockerVersion string
-	Organisation  string
-	DockerRepo    string
-	Timeout       time.Duration
+	Logger         *log.Logger
+	DockerUsername string
+	DockerPassword string
+	DockerHost     string
+	DockerVersion  string
+	Organisation   string
+	DockerRepo     string
+	Timeout        time.Duration
 }
 
 func NewBuilder(opts *BuilderOptions) (*Builder, error) {
@@ -51,11 +56,13 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 	}
 
 	return &Builder{
-		Docker:       docker_client,
-		Logger:       opts.Logger,
-		Timeout:      opts.Timeout,
-		Organisation: opts.Organisation,
-		DockerRepo:   opts.DockerRepo,
+		Docker:         docker_client,
+		DockerUsername: opts.DockerUsername,
+		DockerPassword: opts.DockerPassword,
+		Logger:         opts.Logger,
+		Timeout:        opts.Timeout,
+		Organisation:   opts.Organisation,
+		DockerRepo:     opts.DockerRepo,
 	}, nil
 }
 
@@ -237,7 +244,9 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo stri
 			return err
 		}
 		if b.Logger != nil {
-			b.Logger.Printf("BUILD\t%s", strings.TrimSpace(msg.Text))
+			if _, err := b.Logger.Writer().Write([]byte(msg.Text)); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -245,10 +254,20 @@ func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo stri
 }
 
 func (b *Builder) Push(ctx context.Context, tag string) error {
+	authConfig := docker_types.AuthConfig{
+		Username:      b.DockerUsername,
+		Password:      b.DockerPassword,
+		ServerAddress: fmt.Sprintf("%s/v1/", b.DockerRepo),
+	}
+	authConfigBytes, _ := json.Marshal(authConfig)
+	authConfigEncoded := base64.URLEncoding.EncodeToString(authConfigBytes)
+
 	resp, err := b.Docker.ImagePush(
 		ctx,
 		tag,
-		docker_types.ImagePushOptions{},
+		docker_types.ImagePushOptions{
+			RegistryAuth: authConfigEncoded,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to push image: %w", err)
@@ -265,7 +284,9 @@ func (b *Builder) Push(ctx context.Context, tag string) error {
 			return err
 		}
 		if b.Logger != nil {
-			b.Logger.Printf("PUSH\t%s", strings.TrimSpace(msg.Text))
+			if _, err := b.Logger.Writer().Write([]byte(msg.Text)); err != nil {
+				return err
+			}
 		}
 	}
 
