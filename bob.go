@@ -31,7 +31,6 @@ type Builder struct {
 	GitSSHPublicKey *ssh.PublicKeys
 	DockerUsername  string
 	DockerPassword  string
-	DockerRepo      string
 	Timeout         time.Duration
 }
 
@@ -40,7 +39,6 @@ type BuilderOptions struct {
 	GitSSHKey      string
 	DockerUsername string
 	DockerPassword string
-	DockerRepo     string
 	Timeout        time.Duration
 }
 
@@ -66,7 +64,6 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		DockerUsername:  opts.DockerUsername,
 		DockerPassword:  opts.DockerPassword,
 		Output:          opts.Output,
-		DockerRepo:      opts.DockerRepo,
 	}, nil
 }
 
