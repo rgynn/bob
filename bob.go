@@ -29,7 +29,6 @@ type Builder struct {
 	Writer         io.Writer
 	DockerUsername string
 	DockerPassword string
-	Organisation   string
 	DockerRepo     string
 	Timeout        time.Duration
 }
@@ -40,7 +39,6 @@ type BuilderOptions struct {
 	DockerPassword string
 	DockerHost     string
 	DockerVersion  string
-	Organisation   string
 	DockerRepo     string
 	Timeout        time.Duration
 }
@@ -57,7 +55,6 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		DockerPassword: opts.DockerPassword,
 		Writer:         opts.Writer,
 		Timeout:        opts.Timeout,
-		Organisation:   opts.Organisation,
 		DockerRepo:     opts.DockerRepo,
 	}, nil
 }
