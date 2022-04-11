@@ -13,7 +13,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	docker_types "github.com/docker/docker/api/types"
 	billy "github.com/go-git/go-billy/v5"
@@ -31,7 +30,6 @@ type Builder struct {
 	GitSSHPublicKey *ssh.PublicKeys
 	DockerUsername  string
 	DockerPassword  string
-	Timeout         time.Duration
 }
 
 type BuilderOptions struct {
@@ -39,7 +37,6 @@ type BuilderOptions struct {
 	GitSSHKey      string
 	DockerUsername string
 	DockerPassword string
-	Timeout        time.Duration
 }
 
 func NewBuilder(opts *BuilderOptions) (*Builder, error) {
