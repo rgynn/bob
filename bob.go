@@ -62,10 +62,15 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 	}, nil
 }
 
+func (b *Builder) GetTarFilename(git_repo string) string {
+	repos := strings.Split(git_repo, "/")
+	return fmt.Sprintf("%s.tar.gz", repos[len(repos)-1])
+}
+
 func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesystem, error) {
 	storer := memory.NewStorage()
 	fs := memfs.New()
-	url := fmt.Sprintf("https://github.com/%s/%s", b.Organisation, repo)
+	url := fmt.Sprintf("https://%s", repo)
 
 	repository, err := git.Clone(storer, fs, &git.CloneOptions{
 		URL:      url,
@@ -94,9 +99,8 @@ func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesys
 	return fs, nil
 }
 
-func (b *Builder) Tar(ctx context.Context, repo string, fs billy.Filesystem) error {
-	tarfilename := fmt.Sprintf("%s.tar.gz", repo)
-
+func (b *Builder) Tar(ctx context.Context, git_repo string, fs billy.Filesystem) error {
+	tarfilename := b.GetTarFilename(git_repo)
 	file, err := fs.Create(tarfilename)
 	if err != nil {
 		return err
@@ -180,10 +184,10 @@ func (b *Builder) addFileToArchive(path string, fs billy.Filesystem, tw *tar.Wri
 	return nil
 }
 
-func (b *Builder) DumpArchive(repo string, fs billy.Filesystem) error {
-	filename := fmt.Sprintf("%s.tar.gz", repo)
+func (b *Builder) DumpArchive(git_repo string, fs billy.Filesystem) error {
+	tarfilename := b.GetTarFilename(git_repo)
 
-	src, err := fs.Open(filename)
+	src, err := fs.Open(tarfilename)
 	if err != nil {
 		return err
 	}
@@ -205,10 +209,10 @@ func (b *Builder) DumpArchive(repo string, fs billy.Filesystem) error {
 	return nil
 }
 
-func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo string, tags ...string) error {
-	filename := fmt.Sprintf("%s.tar.gz", repo)
+func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, git_repo, docker_image string, tags ...string) error {
+	tarfilename := b.GetTarFilename(git_repo)
 
-	file, err := fs.Open(filename)
+	file, err := fs.Open(tarfilename)
 	if err != nil {
 		return fmt.Errorf("failed to open tar file in mem fs: %w", err)
 	}
@@ -304,28 +308,24 @@ func (b *Builder) Push(ctx context.Context, tag string) error {
 	return nil
 }
 
-func (b *Builder) Run(repo, commit, image string, tags ...string) error {
+func (b *Builder) Run(git_repo, git_commit, docker_image string, tags ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), b.Timeout)
 	defer cancel()
 
-	fs, err := b.Clone(ctx, repo, commit)
+	fs, err := b.Clone(ctx, git_repo, git_commit)
 	if err != nil {
 		return err
 	}
 
-	if err := b.Tar(ctx, repo, fs); err != nil {
+	if err := b.Tar(ctx, git_repo, fs); err != nil {
 		return err
 	}
 
 	for i, tag := range tags {
-		if b.DockerRepo == "" {
-			tags[i] = fmt.Sprintf("%s/%s:%s", b.Organisation, image, tag)
-		} else {
-			tags[i] = fmt.Sprintf("%s/%s/%s:%s", b.DockerRepo, b.Organisation, image, tag)
-		}
+		tags[i] = fmt.Sprintf("%s:%s", docker_image, tag)
 	}
 
-	if err := b.BuildImage(ctx, fs, repo, tags...); err != nil {
+	if err := b.BuildImage(ctx, fs, git_repo, docker_image, tags...); err != nil {
 		return err
 	}
 
