@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -23,11 +24,13 @@ import (
 
 type Builder struct {
 	Docker       *moby.Client
+	Logger       *log.Logger
 	Organisation string
 	Timeout      time.Duration
 }
 
 type BuilderOptions struct {
+	Logger        *log.Logger
 	DockerHost    string
 	DockerVersion string
 	Organisation  string
@@ -42,6 +45,7 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 
 	return &Builder{
 		Docker:       docker_client,
+		Logger:       opts.Logger,
 		Timeout:      opts.Timeout,
 		Organisation: opts.Organisation,
 	}, nil
@@ -84,34 +88,36 @@ func (b *Builder) Clone(ctx context.Context, repo, commit string) (billy.Filesys
 		if err := scanner.Err(); err != nil {
 			break
 		}
-		log.Printf("GIT\t%s\n", scanner.Text())
+		b.Logger.Printf("GIT\t%s\n", scanner.Text())
 	}
 
 	return fs, nil
 }
 
-func (b *Builder) Tar(ctx context.Context, repo string, fs billy.Filesystem) (billy.File, error) {
-
+func (b *Builder) Tar(ctx context.Context, repo string, fs billy.Filesystem) error {
 	tarfilename := fmt.Sprintf("%s.tar.gz", repo)
 
 	file, err := fs.Create(tarfilename)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer file.Close()
 
-	buffer := bufio.NewWriter(file)
-
-	gw := gzip.NewWriter(buffer)
+	gw := gzip.NewWriter(file)
 	defer gw.Close()
 
 	tw := tar.NewWriter(gw)
 	defer tw.Close()
 
 	if err := b.addDirectoryToArchive(".", tarfilename, fs, tw); err != nil {
-		return nil, err
+		return err
 	}
 
-	return file, nil
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (b *Builder) addDirectoryToArchive(path, tarfilename string, fs billy.Filesystem, tw *tar.Writer) error {
@@ -136,7 +142,6 @@ func (b *Builder) addDirectoryToArchive(path, tarfilename string, fs billy.Files
 			continue
 		}
 
-		fmt.Printf("Adding to archive: %s\n", path)
 		if err := b.addFileToArchive(path, fs, tw); err != nil {
 			return err
 		}
@@ -146,6 +151,8 @@ func (b *Builder) addDirectoryToArchive(path, tarfilename string, fs billy.Files
 }
 
 func (b *Builder) addFileToArchive(path string, fs billy.Filesystem, tw *tar.Writer) error {
+	b.Logger.Printf("Adding to archive: %s\n", path)
+
 	file, err := fs.Open(path)
 	if err != nil {
 		return err
@@ -168,15 +175,47 @@ func (b *Builder) addFileToArchive(path string, fs billy.Filesystem, tw *tar.Wri
 		return err
 	}
 
-	_, err = io.Copy(tw, file)
-	if err != nil {
+	if _, err := io.Copy(tw, file); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (b *Builder) BuildImage(ctx context.Context, file billy.File, image string, tags ...string) error {
+func (b *Builder) DumpArchive(repo string, fs billy.Filesystem) error {
+	filename := fmt.Sprintf("%s.tar.gz", repo)
+
+	src, err := fs.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.Create("tmp/" + src.Name())
+	if err != nil {
+		return err
+	}
+
+	if _, err = io.Copy(dst, src); err != nil {
+		return err
+	}
+
+	if err := dst.Close(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (b *Builder) BuildImage(ctx context.Context, fs billy.Filesystem, repo, image string, tags ...string) error {
+	filename := fmt.Sprintf("%s.tar.gz", repo)
+
+	file, err := fs.Open(filename)
+	if err != nil {
+		return fmt.Errorf("failed to open tar file in mem fs: %w", err)
+	}
+	defer file.Close()
+
 	resp, err := b.Docker.ImageBuild(
 		ctx,
 		file,
@@ -189,15 +228,16 @@ func (b *Builder) BuildImage(ctx context.Context, file billy.File, image string,
 			Dockerfile:  "Dockerfile",
 		})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to build image in docker daemon: %w", err)
 	}
+	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			break
 		}
-		log.Printf("BUILD\t%s\n", scanner.Text())
+		b.Logger.Printf("BUILD\t%s\n", scanner.Text())
 	}
 
 	return nil
@@ -210,15 +250,16 @@ func (b *Builder) Push(ctx context.Context, image string) error {
 		docker_types.ImagePushOptions{},
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to push image: %w", err)
 	}
+	defer resp.Close()
 
 	scanner := bufio.NewScanner(resp)
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			break
 		}
-		log.Printf("PUSH\t%s\n", scanner.Text())
+		b.Logger.Printf("PUSH\t%s\n", scanner.Text())
 	}
 
 	return nil
@@ -233,13 +274,15 @@ func (b *Builder) Run(repo, commit, image string, tags ...string) error {
 		return err
 	}
 
-	file, err := b.Tar(ctx, repo, fs)
-	if err != nil {
+	if err := b.Tar(ctx, repo, fs); err != nil {
 		return err
 	}
-	defer file.Close()
 
-	if err := b.BuildImage(ctx, file, image, tags...); err != nil {
+	if err := b.DumpArchive(repo, fs); err != nil {
+		return err
+	}
+
+	if err := b.BuildImage(ctx, fs, repo, image, tags...); err != nil {
 		return err
 	}
 
