@@ -289,6 +289,8 @@ func (b *Builder) Push(ctx context.Context, tag string) error {
 		return err
 	}
 
+	fmt.Fprintf(b.Output, "Pushing tag: %s\n", tag)
+
 	resp, err := b.Docker.ImagePush(
 		ctx,
 		tag,
