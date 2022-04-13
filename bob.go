@@ -34,7 +34,7 @@ type Builder struct {
 
 type BuilderOptions struct {
 	Output         io.Writer
-	GitSSHKey      string
+	GitSSHKey      []byte
 	DockerUsername string
 	DockerPassword string
 }
@@ -45,12 +45,7 @@ func NewBuilder(opts *BuilderOptions) (*Builder, error) {
 		return nil, err
 	}
 
-	sshkey, err := base64.StdEncoding.DecodeString(opts.GitSSHKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to base64 decode git ssh key: %w", err)
-	}
-
-	publicKey, err := ssh.NewPublicKeys("git", sshkey, "")
+	publicKey, err := ssh.NewPublicKeys("git", opts.GitSSHKey, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate new public key from provided ssh key: %w", err)
 	}

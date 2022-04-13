@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"os"
@@ -35,8 +36,13 @@ func init() {
 }
 
 func main() {
+	sshkey, err := base64.StdEncoding.DecodeString(git_ssh_key)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	builder, err := bob.NewBuilder(&bob.BuilderOptions{
-		GitSSHKey:      git_ssh_key,
+		GitSSHKey:      sshkey,
 		Output:         os.Stdout,
 		DockerUsername: docker_username,
 		DockerPassword: docker_password,
